@@ -116,11 +116,11 @@ def create_h5_file(h5name, datasets, dataset_names):
         os.mkdir("hdf5")
                         
     h5f = h5py.File(f'hdf5/{h5name}', 'w') 
-    # for name, data in zip(dataset_names, datasets):
-    #   h5f.create_dataset(name, data=data, compression="gzip")
-    h5f.create_dataset(dataset_names[0], data=datasets[0], compression="gzip")
-    h5f.create_dataset(dataset_names[1], data=datasets[1], compression="gzip")
-    h5f.create_dataset(dataset_names[2], data=datasets[2], compression="gzip")
+    for name, data in zip(dataset_names, datasets):
+        h5f.create_dataset(name, data=data, compression="gzip")
+    #h5f.create_dataset(dataset_names[0], data=datasets[0], compression="gzip")
+    #h5f.create_dataset(dataset_names[1], data=datasets[1], compression="gzip")
+    #h5f.create_dataset(dataset_names[2], data=datasets[2], compression="gzip")
     
     h5f.close()
     
@@ -143,8 +143,6 @@ def process_as_h5(file, num_examples=None):
         eeg_arr.append(signature(eeg_data.to_numpy()))
         sp_arr.append(change_sp_to_array(sp_dict))
         target_arr.append(np.asfarray(targets))
-        print(f"target {i} length: {len(targets)}")
-        print(f"target {i} length: {type(targets[0])}")
     
     h5name = f"processed_dataset_{num_examples}.h5"
     eeg_arr = np.array(eeg_arr)
