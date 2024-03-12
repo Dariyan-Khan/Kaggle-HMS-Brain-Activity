@@ -1,9 +1,18 @@
 # %% [code]
+# %% [code]
 # This Python 3 environment comes with many helpful analytics libraries installed
 # It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
 # For example, here's several helpful packages to load
 
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+import subprocess
+
+package_name = 'iisignature'
+
+# Run pip install command
+subprocess.run(['pip', 'install', package_name])
+
 import os
 import numpy as np
 import time
@@ -39,6 +48,8 @@ SP_WIN = 600 # 10 minutes = 600 seconds
 EGG_WIN = 50 # 50 seconds in total
 
 LABELED_SECS = 10
+
+
 
 
 def get_data(file):
@@ -93,26 +104,59 @@ def signature(data, level=2):
 def change_sp_to_array(sp_dict, sig=True):
     """Takes in a dictionary of sp_data and 
        converts it to a numpy array"""
+    if not sig:
+        return np.array(list(sp_dict.values()))
     
-    return np.array(list(sp_dict.values())
+    else:
+        return np.array([signature(val) for val in sp_dict.values()])
                       
 
+def create_h5_file(h5name, datasets, dataset_names):
+    if not os.path.exists("hdf5"):
+        os.mkdir("hdf5")
+                        
+    h5f = h5py.File(f'hdf5/{h5name}', 'w') 
+    # for name, data in zip(dataset_names, datasets):
+    #   h5f.create_dataset(name, data=data, compression="gzip")
+    h5f.create_dataset(dataset_names[0], data=datasets[0], compression="gzip")
+    h5f.create_dataset(dataset_names[1], data=datasets[1], compression="gzip")
+    h5f.create_dataset(dataset_names[2], data=datasets[2], compression="gzip")
+    
+    h5f.close()
+    
 
-def create_h5_files(file):
-    """Takes in the dataset, performs signature and then stores data"""
-    pass
-
-
-
+def process_as_h5(file, num_examples=None):
+    """Takes in the dataset, performs signature and then stores data
+        Choose number of of examples. It i suseful to choose a small number
+        initially for testing"""
+                    
+    data = get_data(file)
+    eeg_arr = []
+    sp_arr = []
+    target_arr = []
+    if num_examples is None:
+        num_examples = len(data)
+                    
+    for i in tqdm(range(num_examples)):
+        exp_row = data.iloc[i]
+        eeg_data, sp_dict, targets = get_eeg_sp_data(exp_row)
+        eeg_arr.append(signature(eeg_data.to_numpy()))
+        sp_arr.append(change_sp_to_array(sp_dict))
+        target_arr.append(np.asfarray(targets))
+        print(f"target {i} length: {len(targets)}")
+        print(f"target {i} length: {type(targets[0])}")
+    
+    h5name = f"processed_dataset_{num_examples}.h5"
+    eeg_arr = np.array(eeg_arr)
+    sp_arr = np.array(sp_arr)
+    target_arr = np.array(target_arr)
     
     
-
-
-
-
-
-
-
+    
+    ds_names = [f"eeg_train_data_{num_examples}", f"sp_train_data_{num_examples}", f"target_train_data_{num_examples}"]
+    
+    create_h5_file(h5name, [eeg_arr, sp_arr, target_arr], ds_names)
+    print("Files created!")
 
 
 
@@ -120,11 +164,12 @@ def create_h5_files(file):
 
 if __name__ == "__main__":
     
-    for dirname, _, filenames in os.walk('/kaggle/input'):
-        for filename in filenames:
-            print(os.path.join(dirname, filename))
-        
+    #for dirname, _, filenames in os.walk('/kaggle/input'):
+    #    for filename in filenames:
+    #        print(os.path.join(dirname, filename))
 
+    train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
+    process_as_h5(train_path, num_examples=10)
         
         
         
