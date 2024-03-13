@@ -1,5 +1,6 @@
 # %% [code]
 # %% [code]
+# %% [code]
 # This Python 3 environment comes with many helpful analytics libraries installed
 # It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
 # For example, here's several helpful packages to load
@@ -134,6 +135,7 @@ def process_as_h5(file, num_examples=None):
     eeg_arr = []
     sp_arr = []
     target_arr = []
+    num_votes_arr = []
     if num_examples is None:
         num_examples = len(data)
                     
@@ -142,18 +144,20 @@ def process_as_h5(file, num_examples=None):
         eeg_data, sp_dict, targets = get_eeg_sp_data(exp_row)
         eeg_arr.append(signature(eeg_data.to_numpy()))
         sp_arr.append(change_sp_to_array(sp_dict))
-        target_arr.append(np.asfarray(targets))
+        total_votes = targets.sum()
+        num_votes_arr.append(total_votes)
+        target_arr.append(np.asfarray(targets) / total_votes)
     
     h5name = f"processed_dataset_{num_examples}.h5"
     eeg_arr = np.array(eeg_arr)
     sp_arr = np.array(sp_arr)
     target_arr = np.array(target_arr)
+    num_votes_arr = np.array(num_votes_arr)
     
+    ds_names = [f"eeg_train_data_{num_examples}", f"sp_train_data_{num_examples}", 
+                f"target_train_data_{num_examples}", f"num_votes_{num_examples}"]
     
-    
-    ds_names = [f"eeg_train_data_{num_examples}", f"sp_train_data_{num_examples}", f"target_train_data_{num_examples}"]
-    
-    create_h5_file(h5name, [eeg_arr, sp_arr, target_arr], ds_names)
+    create_h5_file(h5name, [eeg_arr, sp_arr, target_arr, num_votes_arr], ds_names)
     print("Files created!")
 
 
