@@ -108,44 +108,40 @@ def get_eeg_sp_data(train_row):
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.372282Z","iopub.execute_input":"2024-03-16T12:40:56.373478Z","iopub.status.idle":"2024-03-16T12:40:56.378346Z","shell.execute_reply.started":"2024-03-16T12:40:56.373441Z","shell.execute_reply":"2024-03-16T12:40:56.376921Z"},"jupyter":{"outputs_hidden":false}}
 def signature(data, level=2, chunk_len=None):
-    """Performs signature on data needs data to be 2d,
-    and then iterates over the first dim"""
-    assert len(data.shape) == 2, f"data needs to be 2d. data is {data.shape} If it is 1d, reshape so first dim is 1"
-    if chunk_len is None:
-        sig_len = isig.siglength(data.shape[1], level)
-        assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
-        
-        sig_arr = np.zeros((data.shape[0], sig_len))
-        
-        for i in data.shape[0]:
-            sig_arr[i] = isig.sig(data, level)
-        return np.array(sig_arr)
+    """Performs signature on data needs data to be 3d,
+    
+    if input to isig.sig is (num_examples, num_time_steps, dim_of_data_at_each_time_step)
+    then the output will be (num_examples, isig.sig_length(dim_of_data_at_each_time_step, level))
+    
+    chunk_len will split the timesteps (i.e. the second dimension) into chunks of length chunk_len
+    
+    
+    """
+    assert len(data.shape) == 3, f"data needs to be 3d. data is {data.shape} If it is 2d, reshape so first dim is 1"
+    assert chunk_len < data.shape[1] f"chunk length is bigger than the number of time steps"
+    
+    sig_len = isig.siglength(data.shape[2], level)
+    assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
+    
+    if chunk_len is None:        
+        return isig.sig(data, level) # np.array(sig_arr)
         
     else:
         num_whole_chunks = (data.shape[1] // chunk_len)
         remainder = data.shape[1] % chunk_len
-        
-        whole_sig_len = isig.siglength(chunk_len, level)
-        if remainder>0:
-            remainder_sig_len = isig.siglength(data.shape[1] % chunk_len, level)
-        else:
-            remainder_sig_len = 0
             
-        assert whole_sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
+        #sig_arr = np.zeros((data.shape[0], num_whole_chunks + int(remainder != 0), sig_len)
+        sig_arr = []
         
-        sig_arr = np.zeros((data.shape[0], num_whole_chunks*whole_sig_len + remainder_sig_len))
-        
-        for i in range(data.shape[0]):
-            seq = data[i]
-            for j in range(num_whole_chunks):
-                sig_arr[j*chunk_len: (j+1)*chunk_len] = isig.sig(seq[j*chunk_len: (j+1)*chunk_len])
-            
-            sig_arr[num_whole_chunks*chunk_len:num_whole_chunks*whole_sig_len + remainder_sig_len] = \
-            isig.sig(seq[num_whole_chunks*chunk_len:num_whole_chunks*whole_sig_len + remainder_sig_len])
+        for j in range(num_whole_chunks):
+            sig_output = isig.sig(data[:,j*chunk_len: (j+1)*chunk_len,:], level)
+            sig_arr.append(sig_output.reshape(sig_output.shape[0], 1, sig_output.shape[1]))
+
+        sig_output = isig.sig(data[:,num_whole_chunks*chunk_len:,:], level)
+        sig_arr.append(sig_output.reshape(sig_output.shape[0], 1, sig_output.shape[1]))
             
         
-        return np.array(sig_arr)
-        
+        return np.concatenate(sig_arr, axis=1)
         
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.493541Z","iopub.execute_input":"2024-03-16T12:40:56.493964Z","iopub.status.idle":"2024-03-16T12:40:56.500716Z","shell.execute_reply.started":"2024-03-16T12:40:56.493933Z","shell.execute_reply":"2024-03-16T12:40:56.499369Z"},"jupyter":{"outputs_hidden":false}}
@@ -209,23 +205,46 @@ def process_as_h5(file, num_examples=None, apply_sig=False):
     create_h5_file(h5name, [eeg_arr, sp_arr, target_arr, num_votes_arr], ds_names)
     print("Files created!")
 
+def get_data_from_h5(filename):
+    with h5py.File(filename, 'r') as file:
+        # List all groups
+
+        print("Keys: %s" % file.keys())
+
+        file_keys = list(file.keys())
+
+        a_group_key = list(file.keys())[0]
+
+        eeg_data = np.array(file[f"eeg"])
+        sp_data = np.array(file[f"sp"])
+        targets = np.array(file[f"targets"])
+        num_votes = np.array(file[f"num_votes"])
+        num_votes = num_votes.reshape((len(num_votes), -1))
+        return eeg_data, sp_data, targets, num_votes
+
 # %% [code] {"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:56.814038Z","iopub.execute_input":"2024-03-16T12:40:56.814457Z","iopub.status.idle":"2024-03-16T12:40:58.074884Z","shell.execute_reply.started":"2024-03-16T12:40:56.814426Z","shell.execute_reply":"2024-03-16T12:40:58.073584Z"}}
 if __name__ == "__main__":
-    train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
-    data_file = get_data(train_path)
-#     i=0
-#     while True:
-#         eeg, sp, targ = get_eeg_sp_data(data_file.iloc[i])
-#         # print(sp.keys())
-#         if sp['RL'].shape != (300,100):
-#             print(sp['RL'].shape)
+#     train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
+#     data_file = get_data(train_path)
+#     process_as_h5(train_path, num_examples=10)
+    
+#     h5_file = '/kaggle/working/hdf5/processed_dataset_10.h5'
+#     eeg_data, sp_data, targets, num_votes = get_data_from_h5(h5_file)
+#     eeg_data = np.transpose(eeg_data,(0,2,1))
+    
+#     sig_arr = []
+#     for i in range(eeg_data.shape[0]):
+#         sig_arr.append(signature(eeg_data[i,:,:], level=2, chunk_len=100))
+    
+#     print(sig_arr)
+
+    rand_arr = np.random.rand(4, 5, 6)
+    print(signature(rand_arr, chunk_len).shape)
         
-#         if i%100 == 0:
-#             print(f"at {i}")
-#         i+=1
     
     
-    process_as_h5(train_path, num_examples=10)
+    
+    
 
 # %% [code] {"jupyter":{"outputs_hidden":false}}
 
