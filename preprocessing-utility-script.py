@@ -1,1 +1,233 @@
-{"metadata":{"kernelspec":{"language":"python","display_name":"Python 3","name":"python3"},"language_info":{"name":"python","version":"3.10.13","mimetype":"text/x-python","codemirror_mode":{"name":"ipython","version":3},"pygments_lexer":"ipython3","nbconvert_exporter":"python","file_extension":".py"},"kaggle":{"accelerator":"none","dataSources":[{"sourceId":59093,"databundleVersionId":7469972,"sourceType":"competition"}],"dockerImageVersionId":30664,"isInternetEnabled":true,"language":"python","sourceType":"notebook","isGpuEnabled":false}},"nbformat_minor":4,"nbformat":4,"cells":[{"cell_type":"code","source":"import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)\nimport subprocess\nimport pkg_resources\nimport os\nimport numpy as np\nimport time\nimport h5py\nfrom tqdm import tqdm\n\n\n#installs iisignature\npackage_name = 'iisignature'\n\ntry:\n    pkg_resources.get_distribution(package_name)\n    print(f\"{package_name} is already installed.\")\nexcept pkg_resources.DistributionNotFound:\n    # The package is not installed; install it.\n    print(f\"{package_name} not found. Installing...\")\n    subprocess.run(['pip', 'install', package_name], check=True)\n\nimport iisignature as isig","metadata":{"_uuid":"a0fead38-ebd0-406f-8d26-7183e5f8333f","_cell_guid":"1817c75c-064a-400d-8aee-ad07eff300e8","collapsed":false,"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:53.885066Z","iopub.execute_input":"2024-03-16T12:40:53.885483Z","iopub.status.idle":"2024-03-16T12:40:54.095864Z","shell.execute_reply.started":"2024-03-16T12:40:53.885452Z","shell.execute_reply":"2024-03-16T12:40:54.094753Z"},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"train_columns = ['eeg_id','eeg_sub_id','eeg_label_offset_seconds','spectrogram_id',\n                 'spectrogram_sub_id','spectrogram_label_offset_seconds','label_id','patient_id']\n\n\nTARGET_COLUMNS = ['seizure_vote','lpd_vote','gpd_vote','lrda_vote','grda_vote','other_vote']\nCLASS_NAMES = ['Seizure', 'LPD', 'GPD', 'LRDA','GRDA', 'Other']\nLABEL2NAME = dict(enumerate(CLASS_NAMES))\nNAME2LABEL = {v:k for k, v in LABEL2NAME.items()}\n\nEEG_PATH_TEMPL = '/kaggle/input/hms-harmful-brain-activity-classification/train_eegs/'\nSP_PATH_TEMPL = '/kaggle/input/hms-harmful-brain-activity-classification/train_spectrograms/'\n\nWIN_SIZE =  10 # 10 seconds\nEEG_FR = 200 # 200 samples per seconds\nEEG_T = WIN_SIZE*EEG_FR\nCHAINS = {\n    'LL' : [(\"Fp1\",\"F7\"),(\"F7\",\"T3\"),(\"T3\",\"T5\"),(\"T5\",\"O1\")],\n    'RL' : [(\"Fp2\",\"F8\"),(\"F8\",\"T4\"),(\"T4\",\"T6\"),(\"T6\",\"O2\")],\n    'LP' : [(\"Fp1\",\"F3\"),(\"F3\",\"C3\"),(\"C3\",\"P3\"),(\"P3\",\"O1\")],\n    'RP' : [(\"Fp2\",\"F4\"),(\"F4\",\"C4\"),(\"C4\",\"P4\"),(\"P4\",\"O2\")],\n    'other' : [(\"Fz\",\"Cz\"), (\"Cz\", \"Pz\"), (\"EKG\")]\n}\nSP_WIN = 600 # 10 minutes = 600 seconds\nEGG_WIN = 50 # 50 seconds in total\n\nLABELED_SECS = 10","metadata":{"_uuid":"04d2e682-7e4a-4400-befc-8963ab242203","_cell_guid":"59455b54-022e-40fd-8815-7bccb8e113df","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:55.738271Z","iopub.execute_input":"2024-03-16T12:40:55.738682Z","iopub.status.idle":"2024-03-16T12:40:55.750749Z","shell.execute_reply.started":"2024-03-16T12:40:55.738654Z","shell.execute_reply":"2024-03-16T12:40:55.749635Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"def get_data(file):\n    \"\"\"Takes in file and returns a pandas data frame of the data\n        File should be a .csv \"\"\"\n    \n    return pd.read_csv(file)","metadata":{"_uuid":"ece7f44a-b80a-48af-a261-733c9d0da817","_cell_guid":"bb89e55b-d40c-40b2-9cd4-d40383b1955c","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:55.914307Z","iopub.execute_input":"2024-03-16T12:40:55.914949Z","iopub.status.idle":"2024-03-16T12:40:55.919195Z","shell.execute_reply.started":"2024-03-16T12:40:55.914918Z","shell.execute_reply":"2024-03-16T12:40:55.918089Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"def get_eeg_sp_data(train_row):\n    \"\"\"Gets EEG and Spectogram data from a specific row in the dataset\"\"\"\n    \n    eeg_id = train_row.eeg_id\n    sp_id = train_row.spectrogram_id\n    \n    eeg_parquet = pd.read_parquet(f'{EEG_PATH_TEMPL}{eeg_id}.parquet')\n    sp_parquet = pd.read_parquet(f'{SP_PATH_TEMPL}{sp_id}.parquet')\n    \n    # offset of data\n    eeg_offset = int(train_row.eeg_label_offset_seconds + 20) #only 10 central seconds from 50 secs were labeled, which should be seconds 20-30 in the sample\n    sp_offset = int(train_row.spectrogram_label_offset_seconds )\n    \n    # get spectrogram data\n    sp = sp_parquet.loc[(sp_parquet.time>=sp_offset)&(sp_parquet.time<sp_offset+SP_WIN)]\n    sp = sp.loc[:, sp.columns != 'time']\n    sp = {\n        \"LL\": sp.filter(regex='^LL', axis=1),\n        \"RL\": sp.filter(regex='^RL', axis=1),\n        \"RP\": sp.filter(regex='^RP', axis=1),\n        \"LP\": sp.filter(regex='^LP', axis=1)}\n    \n    # calculate eeg data\n    eeg_data = eeg_parquet.iloc[eeg_offset*EEG_FR:(eeg_offset+WIN_SIZE)*EEG_FR]\n    # print(eeg_data.keys()) # Has keys Index(['Fp1', 'F3', 'C3', 'P3', 'F7', 'T3', 'T5', 'O1', 'Fz', 'Cz', 'Pz',\n                            # 'Fp2', 'F4', 'C4', 'P4', 'F8', 'T4', 'T6', 'O2', 'EKG']\n    # assert 0 == 1\n    \n    eeg = pd.DataFrame({})\n    for chain in CHAINS.keys():\n        for s_i, signals in enumerate(CHAINS[chain]):\n            if len(signals) == 2:\n                diff=eeg_data[signals[0]]-eeg_data[signals[1]] # Subtracts relevant fields as in the image above\n                diff.ffill(inplace = True) # forward fills in the casse of nan values\n                eeg[f\"{chain}: {signals[0]} - {signals[1]}\"] = diff\n            \n            elif len(signals) == 1:\n                sig=eeg_data[signals[0]]\n                sig.ffill(inplace = True) \n                eeg[f\"{chain}: {signals[0]}\"] = sig\n                \n                \n    \n    return eeg, sp, train_row[TARGET_COLUMNS].values","metadata":{"_uuid":"bcb7755d-77d1-4fee-b6a7-c26faee9b621","_cell_guid":"a6655831-4d64-4108-84ea-8f759a3875e9","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:56.025504Z","iopub.execute_input":"2024-03-16T12:40:56.026893Z","iopub.status.idle":"2024-03-16T12:40:56.041648Z","shell.execute_reply.started":"2024-03-16T12:40:56.026841Z","shell.execute_reply":"2024-03-16T12:40:56.040418Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"","metadata":{"_uuid":"f11e48f7-a42e-498b-92c2-0d03c6bc4bd0","_cell_guid":"4c811d65-d42e-4f18-8fc4-3fe9efa5b97f","collapsed":false,"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"def signature(data, level=2, chunk_len=None):\n    \"\"\"Performs signature on data needs data to be 2d,\n    and then iterates over the first dim\"\"\"\n    assert len(data.shape) == 2, f\"data needs to be 2d. data is {data.shape} If it is 1d, reshape so first dim is 1\"\n    if chunk_len is None:\n        sig_len = isig.siglength(data.shape[1], level)\n        assert sig_len > 0 , \"Too many elements in each chunk. Signature package thinks the num of elements is negative lol\"\n        \n        sig_arr = np.zeros((data.shape[0], sig_len))\n        \n        for i in data.shape[0]:\n            sig_arr[i] = isig.sig(data, level)\n        return np.array(sig_arr)\n        \n    else:\n        num_whole_chunks = (data.shape[1] // chunk_len)\n        remainder = data.shape[1] % chunk_len\n        \n        whole_sig_len = isig.siglength(chunk_len, level)\n        if remainder>0:\n            remainder_sig_len = isig.siglength(data.shape[1] % chunk_len, level)\n        else:\n            remainder_sig_len = 0\n            \n        assert whole_sig_len > 0 , \"Too many elements in each chunk. Signature package thinks the num of elements is negative lol\"\n        \n        sig_arr = np.zeros((data.shape[0], num_whole_chunks*whole_sig_len + remainder_sig_len))\n        \n        for i in range(data.shape[0]):\n            seq = data[i]\n            for j in range(num_whole_chunks):\n                sig_arr[j*chunk_len: (j+1)*chunk_len] = isig.sig(seq[j*chunk_len: (j+1)*chunk_len])\n            \n            sig_arr[num_whole_chunks*chunk_len:num_whole_chunks*whole_sig_len + remainder_sig_len] = \\\n            isig.sig(seq[num_whole_chunks*chunk_len:num_whole_chunks*whole_sig_len + remainder_sig_len])\n            \n        \n        return np.array(sig_arr)\n        \n        ","metadata":{"_uuid":"14368397-a6fe-4fe7-bea0-5a65beec1ccb","_cell_guid":"c246bd6d-d425-4594-bc40-b03a758a34b1","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:56.372282Z","iopub.execute_input":"2024-03-16T12:40:56.373478Z","iopub.status.idle":"2024-03-16T12:40:56.378346Z","shell.execute_reply.started":"2024-03-16T12:40:56.373441Z","shell.execute_reply":"2024-03-16T12:40:56.376921Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"def change_sp_to_array(sp_dict, sig=True):\n    \"\"\"Takes in a dictionary of sp_data and \n       converts it to a numpy array\"\"\"    \n    if not sig:\n        return np.array(list(sp_dict.values()))\n    \n    else:\n        return np.array([signature(val) for val in sp_dict.values()])","metadata":{"_uuid":"d2443622-1b22-49c3-b7ca-862c56c2779e","_cell_guid":"42c06cd4-deb5-4f2d-aa06-fa99f750e4cf","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:56.493541Z","iopub.execute_input":"2024-03-16T12:40:56.493964Z","iopub.status.idle":"2024-03-16T12:40:56.500716Z","shell.execute_reply.started":"2024-03-16T12:40:56.493933Z","shell.execute_reply":"2024-03-16T12:40:56.499369Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"def create_h5_file(h5name, datasets, dataset_names):\n    if not os.path.exists(\"hdf5\"):\n        os.mkdir(\"hdf5\")\n                        \n    h5f = h5py.File(f'hdf5/{h5name}', 'w') \n    for name, data in zip(dataset_names, datasets):\n        h5f.create_dataset(name, data=data, compression=\"gzip\")\n    h5f.close()","metadata":{"_uuid":"508dd424-5b91-4076-a8d5-88b1599d3f7b","_cell_guid":"105aae53-ef34-432e-89b8-007589c26457","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:56.775940Z","iopub.execute_input":"2024-03-16T12:40:56.776949Z","iopub.status.idle":"2024-03-16T12:40:56.782437Z","shell.execute_reply.started":"2024-03-16T12:40:56.776911Z","shell.execute_reply":"2024-03-16T12:40:56.781586Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"def process_as_h5(file, num_examples=None, apply_sig=False):\n    \"\"\"Takes in the dataset, performs signature and then stores data\n        Choose number of of examples. It i suseful to choose a small number\n        initially for testing\"\"\"\n                    \n    data = get_data(file)\n    eeg_arr = []\n    sp_arr = []\n    target_arr = []\n    num_votes_arr = []\n    if num_examples is None:\n        num_examples = len(data)\n                    \n    for i in tqdm(range(num_examples)):\n        exp_row = data.iloc[i]\n        eeg_data, sp_dict, targets = get_eeg_sp_data(exp_row)\n#         print(eeg_data.shape)\n#         print(signature(eeg_data.to_numpy()).shape)\n        if apply_sig:\n            eeg_arr.append(signature(eeg_data.to_numpy()))\n            sp_arr.append(change_sp_to_array(sp_dict, sig=True))\n        else:\n            eeg_arr.append(eeg_data.to_numpy())\n            sp_arr.append(change_sp_to_array(sp_dict, sig=False))\n        total_votes = targets.sum()\n        num_votes_arr.append(total_votes)\n        target_arr.append(np.asfarray(targets) / total_votes)\n    \n    h5name = f\"processed_dataset_{num_examples}.h5\"\n    eeg_arr = np.array(eeg_arr)\n    sp_arr = np.array(sp_arr)\n    target_arr = np.array(target_arr)\n    num_votes_arr = np.array(num_votes_arr)\n    \n    ds_names = [f\"eeg\", f\"sp\", \n                f\"targets\", f\"num_votes\"]\n    \n    create_h5_file(h5name, [eeg_arr, sp_arr, target_arr, num_votes_arr], ds_names)\n    print(\"Files created!\")","metadata":{"_uuid":"27ea0aad-6c70-4168-8f8b-f3ac58d9a849","_cell_guid":"7cca458b-e726-4b4e-b732-a180d61b6cf7","collapsed":false,"execution":{"iopub.status.busy":"2024-03-16T12:40:56.784340Z","iopub.execute_input":"2024-03-16T12:40:56.784687Z","iopub.status.idle":"2024-03-16T12:40:56.797546Z","shell.execute_reply.started":"2024-03-16T12:40:56.784652Z","shell.execute_reply":"2024-03-16T12:40:56.796355Z"},"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"if __name__ == \"__main__\":\n    train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'\n    data_file = get_data(train_path)\n#     i=0\n#     while True:\n#         eeg, sp, targ = get_eeg_sp_data(data_file.iloc[i])\n#         # print(sp.keys())\n#         if sp['RL'].shape != (300,100):\n#             print(sp['RL'].shape)\n        \n#         if i%100 == 0:\n#             print(f\"at {i}\")\n#         i+=1\n    \n    \n    process_as_h5(train_path, num_examples=10)","metadata":{"_uuid":"4029f9b1-4e2a-48bd-ba35-ecc1e428e376","_cell_guid":"dad55e75-97ee-4413-8d02-a606a5d68fee","collapsed":false,"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:56.814038Z","iopub.execute_input":"2024-03-16T12:40:56.814457Z","iopub.status.idle":"2024-03-16T12:40:58.074884Z","shell.execute_reply.started":"2024-03-16T12:40:56.814426Z","shell.execute_reply":"2024-03-16T12:40:58.073584Z"},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"","metadata":{"_uuid":"8f857890-8d34-4561-a590-181d7c857eb8","_cell_guid":"fcf79234-df67-420f-9617-1d5081342f14","collapsed":false,"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]},{"cell_type":"code","source":"","metadata":{"_uuid":"a5cad6ae-9bc6-4829-97b8-65da2e4dc5dd","_cell_guid":"d075947f-2ca0-4106-ad16-a9a6ae04f7f7","collapsed":false,"jupyter":{"outputs_hidden":false},"trusted":true},"execution_count":null,"outputs":[]}]}
+# %% [code] {"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:53.885066Z","iopub.execute_input":"2024-03-16T12:40:53.885483Z","iopub.status.idle":"2024-03-16T12:40:54.095864Z","shell.execute_reply.started":"2024-03-16T12:40:53.885452Z","shell.execute_reply":"2024-03-16T12:40:54.094753Z"}}
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import subprocess
+import pkg_resources
+import os
+import numpy as np
+import time
+import h5py
+from tqdm import tqdm
+
+
+#installs iisignature
+package_name = 'iisignature'
+
+try:
+    pkg_resources.get_distribution(package_name)
+    print(f"{package_name} is already installed.")
+except pkg_resources.DistributionNotFound:
+    # The package is not installed; install it.
+    print(f"{package_name} not found. Installing...")
+    subprocess.run(['pip', 'install', package_name], check=True)
+
+import iisignature as isig
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:55.738271Z","iopub.execute_input":"2024-03-16T12:40:55.738682Z","iopub.status.idle":"2024-03-16T12:40:55.750749Z","shell.execute_reply.started":"2024-03-16T12:40:55.738654Z","shell.execute_reply":"2024-03-16T12:40:55.749635Z"},"jupyter":{"outputs_hidden":false}}
+train_columns = ['eeg_id','eeg_sub_id','eeg_label_offset_seconds','spectrogram_id',
+                 'spectrogram_sub_id','spectrogram_label_offset_seconds','label_id','patient_id']
+
+
+TARGET_COLUMNS = ['seizure_vote','lpd_vote','gpd_vote','lrda_vote','grda_vote','other_vote']
+CLASS_NAMES = ['Seizure', 'LPD', 'GPD', 'LRDA','GRDA', 'Other']
+LABEL2NAME = dict(enumerate(CLASS_NAMES))
+NAME2LABEL = {v:k for k, v in LABEL2NAME.items()}
+
+EEG_PATH_TEMPL = '/kaggle/input/hms-harmful-brain-activity-classification/train_eegs/'
+SP_PATH_TEMPL = '/kaggle/input/hms-harmful-brain-activity-classification/train_spectrograms/'
+
+WIN_SIZE =  10 # 10 seconds
+EEG_FR = 200 # 200 samples per seconds
+EEG_T = WIN_SIZE*EEG_FR
+CHAINS = {
+    'LL' : [("Fp1","F7"),("F7","T3"),("T3","T5"),("T5","O1")],
+    'RL' : [("Fp2","F8"),("F8","T4"),("T4","T6"),("T6","O2")],
+    'LP' : [("Fp1","F3"),("F3","C3"),("C3","P3"),("P3","O1")],
+    'RP' : [("Fp2","F4"),("F4","C4"),("C4","P4"),("P4","O2")],
+    'other' : [("Fz","Cz"), ("Cz", "Pz"), ("EKG")]
+}
+SP_WIN = 600 # 10 minutes = 600 seconds
+EGG_WIN = 50 # 50 seconds in total
+
+LABELED_SECS = 10
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:55.914307Z","iopub.execute_input":"2024-03-16T12:40:55.914949Z","iopub.status.idle":"2024-03-16T12:40:55.919195Z","shell.execute_reply.started":"2024-03-16T12:40:55.914918Z","shell.execute_reply":"2024-03-16T12:40:55.918089Z"},"jupyter":{"outputs_hidden":false}}
+def get_data(file):
+    """Takes in file and returns a pandas data frame of the data
+        File should be a .csv """
+    
+    return pd.read_csv(file)
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.025504Z","iopub.execute_input":"2024-03-16T12:40:56.026893Z","iopub.status.idle":"2024-03-16T12:40:56.041648Z","shell.execute_reply.started":"2024-03-16T12:40:56.026841Z","shell.execute_reply":"2024-03-16T12:40:56.040418Z"},"jupyter":{"outputs_hidden":false}}
+def get_eeg_sp_data(train_row):
+    """Gets EEG and Spectogram data from a specific row in the dataset"""
+    
+    eeg_id = train_row.eeg_id
+    sp_id = train_row.spectrogram_id
+    
+    eeg_parquet = pd.read_parquet(f'{EEG_PATH_TEMPL}{eeg_id}.parquet')
+    sp_parquet = pd.read_parquet(f'{SP_PATH_TEMPL}{sp_id}.parquet')
+    
+    # offset of data
+    eeg_offset = int(train_row.eeg_label_offset_seconds + 20) #only 10 central seconds from 50 secs were labeled, which should be seconds 20-30 in the sample
+    sp_offset = int(train_row.spectrogram_label_offset_seconds )
+    
+    # get spectrogram data
+    sp = sp_parquet.loc[(sp_parquet.time>=sp_offset)&(sp_parquet.time<sp_offset+SP_WIN)]
+    sp = sp.loc[:, sp.columns != 'time']
+    sp = {
+        "LL": sp.filter(regex='^LL', axis=1),
+        "RL": sp.filter(regex='^RL', axis=1),
+        "RP": sp.filter(regex='^RP', axis=1),
+        "LP": sp.filter(regex='^LP', axis=1)}
+    
+    # calculate eeg data
+    eeg_data = eeg_parquet.iloc[eeg_offset*EEG_FR:(eeg_offset+WIN_SIZE)*EEG_FR]
+    # print(eeg_data.keys()) # Has keys Index(['Fp1', 'F3', 'C3', 'P3', 'F7', 'T3', 'T5', 'O1', 'Fz', 'Cz', 'Pz',
+                            # 'Fp2', 'F4', 'C4', 'P4', 'F8', 'T4', 'T6', 'O2', 'EKG']
+    # assert 0 == 1
+    
+    eeg = pd.DataFrame({})
+    for chain in CHAINS.keys():
+        for s_i, signals in enumerate(CHAINS[chain]):
+            if len(signals) == 2:
+                diff=eeg_data[signals[0]]-eeg_data[signals[1]] # Subtracts relevant fields as in the image above
+                diff.ffill(inplace = True) # forward fills in the casse of nan values
+                eeg[f"{chain}: {signals[0]} - {signals[1]}"] = diff
+            
+            elif len(signals) == 1:
+                sig=eeg_data[signals[0]]
+                sig.ffill(inplace = True) 
+                eeg[f"{chain}: {signals[0]}"] = sig
+                
+                
+    
+    return eeg, sp, train_row[TARGET_COLUMNS].values
+
+# %% [code] {"jupyter":{"outputs_hidden":false}}
+
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.372282Z","iopub.execute_input":"2024-03-16T12:40:56.373478Z","iopub.status.idle":"2024-03-16T12:40:56.378346Z","shell.execute_reply.started":"2024-03-16T12:40:56.373441Z","shell.execute_reply":"2024-03-16T12:40:56.376921Z"},"jupyter":{"outputs_hidden":false}}
+def signature(data, level=2, chunk_len=None):
+    """Performs signature on data needs data to be 2d,
+    and then iterates over the first dim"""
+    assert len(data.shape) == 2, f"data needs to be 2d. data is {data.shape} If it is 1d, reshape so first dim is 1"
+    if chunk_len is None:
+        sig_len = isig.siglength(data.shape[1], level)
+        assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
+        
+        sig_arr = np.zeros((data.shape[0], sig_len))
+        
+        for i in data.shape[0]:
+            sig_arr[i] = isig.sig(data, level)
+        return np.array(sig_arr)
+        
+    else:
+        num_whole_chunks = (data.shape[1] // chunk_len)
+        remainder = data.shape[1] % chunk_len
+        
+        whole_sig_len = isig.siglength(chunk_len, level)
+        if remainder>0:
+            remainder_sig_len = isig.siglength(data.shape[1] % chunk_len, level)
+        else:
+            remainder_sig_len = 0
+            
+        assert whole_sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
+        
+        sig_arr = np.zeros((data.shape[0], num_whole_chunks*whole_sig_len + remainder_sig_len))
+        
+        for i in range(data.shape[0]):
+            seq = data[i]
+            for j in range(num_whole_chunks):
+                sig_arr[j*chunk_len: (j+1)*chunk_len] = isig.sig(seq[j*chunk_len: (j+1)*chunk_len])
+            
+            sig_arr[num_whole_chunks*chunk_len:num_whole_chunks*whole_sig_len + remainder_sig_len] = \
+            isig.sig(seq[num_whole_chunks*chunk_len:num_whole_chunks*whole_sig_len + remainder_sig_len])
+            
+        
+        return np.array(sig_arr)
+        
+        
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.493541Z","iopub.execute_input":"2024-03-16T12:40:56.493964Z","iopub.status.idle":"2024-03-16T12:40:56.500716Z","shell.execute_reply.started":"2024-03-16T12:40:56.493933Z","shell.execute_reply":"2024-03-16T12:40:56.499369Z"},"jupyter":{"outputs_hidden":false}}
+def change_sp_to_array(sp_dict, sig=True):
+    """Takes in a dictionary of sp_data and 
+       converts it to a numpy array"""    
+    if not sig:
+        return np.array(list(sp_dict.values()))
+    
+    else:
+        return np.array([signature(val) for val in sp_dict.values()])
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.775940Z","iopub.execute_input":"2024-03-16T12:40:56.776949Z","iopub.status.idle":"2024-03-16T12:40:56.782437Z","shell.execute_reply.started":"2024-03-16T12:40:56.776911Z","shell.execute_reply":"2024-03-16T12:40:56.781586Z"},"jupyter":{"outputs_hidden":false}}
+def create_h5_file(h5name, datasets, dataset_names):
+    if not os.path.exists("hdf5"):
+        os.mkdir("hdf5")
+                        
+    h5f = h5py.File(f'hdf5/{h5name}', 'w') 
+    for name, data in zip(dataset_names, datasets):
+        h5f.create_dataset(name, data=data, compression="gzip")
+    h5f.close()
+
+# %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.784340Z","iopub.execute_input":"2024-03-16T12:40:56.784687Z","iopub.status.idle":"2024-03-16T12:40:56.797546Z","shell.execute_reply.started":"2024-03-16T12:40:56.784652Z","shell.execute_reply":"2024-03-16T12:40:56.796355Z"},"jupyter":{"outputs_hidden":false}}
+def process_as_h5(file, num_examples=None, apply_sig=False):
+    """Takes in the dataset, performs signature and then stores data
+        Choose number of of examples. It i suseful to choose a small number
+        initially for testing"""
+                    
+    data = get_data(file)
+    eeg_arr = []
+    sp_arr = []
+    target_arr = []
+    num_votes_arr = []
+    if num_examples is None:
+        num_examples = len(data)
+                    
+    for i in tqdm(range(num_examples)):
+        exp_row = data.iloc[i]
+        eeg_data, sp_dict, targets = get_eeg_sp_data(exp_row)
+#         print(eeg_data.shape)
+#         print(signature(eeg_data.to_numpy()).shape)
+        if apply_sig:
+            eeg_arr.append(signature(eeg_data.to_numpy()))
+            sp_arr.append(change_sp_to_array(sp_dict, sig=True))
+        else:
+            eeg_arr.append(eeg_data.to_numpy())
+            sp_arr.append(change_sp_to_array(sp_dict, sig=False))
+        total_votes = targets.sum()
+        num_votes_arr.append(total_votes)
+        target_arr.append(np.asfarray(targets) / total_votes)
+    
+    h5name = f"processed_dataset_{num_examples}.h5"
+    eeg_arr = np.array(eeg_arr)
+    sp_arr = np.array(sp_arr)
+    target_arr = np.array(target_arr)
+    num_votes_arr = np.array(num_votes_arr)
+    
+    ds_names = [f"eeg", f"sp", 
+                f"targets", f"num_votes"]
+    
+    create_h5_file(h5name, [eeg_arr, sp_arr, target_arr, num_votes_arr], ds_names)
+    print("Files created!")
+
+# %% [code] {"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:56.814038Z","iopub.execute_input":"2024-03-16T12:40:56.814457Z","iopub.status.idle":"2024-03-16T12:40:58.074884Z","shell.execute_reply.started":"2024-03-16T12:40:56.814426Z","shell.execute_reply":"2024-03-16T12:40:58.073584Z"}}
+if __name__ == "__main__":
+    train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
+    data_file = get_data(train_path)
+#     i=0
+#     while True:
+#         eeg, sp, targ = get_eeg_sp_data(data_file.iloc[i])
+#         # print(sp.keys())
+#         if sp['RL'].shape != (300,100):
+#             print(sp['RL'].shape)
+        
+#         if i%100 == 0:
+#             print(f"at {i}")
+#         i+=1
+    
+    
+    process_as_h5(train_path, num_examples=10)
+
+# %% [code] {"jupyter":{"outputs_hidden":false}}
+
+
+# %% [code] {"jupyter":{"outputs_hidden":false}}
