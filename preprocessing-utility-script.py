@@ -118,7 +118,7 @@ def signature(data, level=2, chunk_len=None):
     
     """
     assert len(data.shape) == 3, f"data needs to be 3d. data is {data.shape} If it is 2d, reshape so first dim is 1"
-    assert chunk_len < data.shape[1] f"chunk length is bigger than the number of time steps"
+    assert chunk_len < data.shape[1], f"chunk length is bigger than the number of time steps"
     
     sig_len = isig.siglength(data.shape[2], level)
     assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
