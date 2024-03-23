@@ -1,3 +1,4 @@
+# %% [code]
 # %% [code] {"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:53.885066Z","iopub.execute_input":"2024-03-16T12:40:53.885483Z","iopub.status.idle":"2024-03-16T12:40:54.095864Z","shell.execute_reply.started":"2024-03-16T12:40:53.885452Z","shell.execute_reply":"2024-03-16T12:40:54.094753Z"}}
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 import subprocess
@@ -8,7 +9,8 @@ import time
 import h5py
 from tqdm import tqdm
 import subprocess
-
+import os
+import zipfile
 
 def install_pacakge(package_name):
     pacakge_name = 'iisignature'
@@ -20,9 +22,6 @@ def install_pacakge(package_name):
         print(f"{package_name} not found. Installing...")
         subprocess.run(['pip', 'install', package_name], check=True)
         
-        
-install_pacakge('iisignature')
-import iisignature as isig
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:55.738271Z","iopub.execute_input":"2024-03-16T12:40:55.738682Z","iopub.status.idle":"2024-03-16T12:40:55.750749Z","shell.execute_reply.started":"2024-03-16T12:40:55.738654Z","shell.execute_reply":"2024-03-16T12:40:55.749635Z"},"jupyter":{"outputs_hidden":false}}
 train_columns = ['eeg_id','eeg_sub_id','eeg_label_offset_seconds','spectrogram_id',
@@ -226,14 +225,36 @@ def get_data_from_h5(filename):
         num_votes = num_votes.reshape((len(num_votes), -1))
         return eeg_data, sp_data, targets, num_votes
 
+def zip_folder(folder_path, output_zip):
+    """
+    Zip the contents of an entire folder (with that folder included
+    in the archive). Empty directories are included in the archive as well.
+    """
+    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        lenDirPath = len(folder_path)
+        for root, _, files in os.walk(folder_path):
+            # Include all subdirectories, including empty ones.
+            for dirName in os.listdir(root):
+                dirPath = os.path.join(root, dirName)
+                if os.path.isdir(dirPath):
+                    zipf.write(dirPath, os.path.relpath(dirPath, folder_path))
+            # Add files
+            for file in files:
+                filePath = os.path.join(root, file)
+                zipf.write(filePath, os.path.relpath(filePath, folder_path))
+
 # %% [code] {"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:56.814038Z","iopub.execute_input":"2024-03-16T12:40:56.814457Z","iopub.status.idle":"2024-03-16T12:40:58.074884Z","shell.execute_reply.started":"2024-03-16T12:40:56.814426Z","shell.execute_reply":"2024-03-16T12:40:58.073584Z"}}
 if __name__ == "__main__":
+    #install_pacakge('iisignature')
+    #import iisignature as isig
 #     train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
 #     data_file = get_data(train_path)
 #     process_as_h5(train_path, num_examples=10)
 
-    rand_arr = np.random.rand(4, 5, 6)
-    print(signature(rand_arr, 2).shape)
+#     rand_arr = np.random.rand(4, 5, 6)
+#     print(signature(rand_arr, 2).shape)
+
+    print("running!")
         
     
     
