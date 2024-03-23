@@ -1,4 +1,5 @@
 # %% [code]
+# %% [code]
 # %% [code] {"jupyter":{"outputs_hidden":false},"execution":{"iopub.status.busy":"2024-03-16T12:40:53.885066Z","iopub.execute_input":"2024-03-16T12:40:53.885483Z","iopub.status.idle":"2024-03-16T12:40:54.095864Z","shell.execute_reply.started":"2024-03-16T12:40:53.885452Z","shell.execute_reply":"2024-03-16T12:40:54.094753Z"}}
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 import subprocess
@@ -21,6 +22,9 @@ def install_pacakge(package_name):
         # The package is not installed; install it.
         print(f"{package_name} not found. Installing...")
         subprocess.run(['pip', 'install', package_name], check=True)
+
+install_pacakge('iisignature')
+import iisignature as isig
         
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:55.738271Z","iopub.execute_input":"2024-03-16T12:40:55.738682Z","iopub.status.idle":"2024-03-16T12:40:55.750749Z","shell.execute_reply.started":"2024-03-16T12:40:55.738654Z","shell.execute_reply":"2024-03-16T12:40:55.749635Z"},"jupyter":{"outputs_hidden":false}}
