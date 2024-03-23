@@ -7,19 +7,21 @@ import numpy as np
 import time
 import h5py
 from tqdm import tqdm
+import subprocess
 
 
-#installs iisignature
-package_name = 'iisignature'
-
-try:
-    pkg_resources.get_distribution(package_name)
-    print(f"{package_name} is already installed.")
-except pkg_resources.DistributionNotFound:
-    # The package is not installed; install it.
-    print(f"{package_name} not found. Installing...")
-    subprocess.run(['pip', 'install', package_name], check=True)
-
+def install_pacakge(package_name):
+    pacakge_name = 'iisignature'
+    try:
+        pkg_resources.get_distribution(package_name)
+        print(f"{package_name} is already installed.")
+    except pkg_resources.DistributionNotFound:
+        # The package is not installed; install it.
+        print(f"{package_name} not found. Installing...")
+        subprocess.run(['pip', 'install', package_name], check=True)
+        
+        
+install_pacakge('iisignature')
 import iisignature as isig
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:55.738271Z","iopub.execute_input":"2024-03-16T12:40:55.738682Z","iopub.status.idle":"2024-03-16T12:40:55.750749Z","shell.execute_reply.started":"2024-03-16T12:40:55.738654Z","shell.execute_reply":"2024-03-16T12:40:55.749635Z"},"jupyter":{"outputs_hidden":false}}
@@ -229,19 +231,9 @@ if __name__ == "__main__":
 #     train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
 #     data_file = get_data(train_path)
 #     process_as_h5(train_path, num_examples=10)
-    
-#     h5_file = '/kaggle/working/hdf5/processed_dataset_10.h5'
-#     eeg_data, sp_data, targets, num_votes = get_data_from_h5(h5_file)
-#     eeg_data = np.transpose(eeg_data,(0,2,1))
-    
-#     sig_arr = []
-#     for i in range(eeg_data.shape[0]):
-#         sig_arr.append(signature(eeg_data[i,:,:], level=2, chunk_len=100))
-    
-#     print(sig_arr)
 
     rand_arr = np.random.rand(4, 5, 6)
-    print(signature(rand_arr, chunk_len).shape)
+    print(signature(rand_arr, 2).shape)
         
     
     
