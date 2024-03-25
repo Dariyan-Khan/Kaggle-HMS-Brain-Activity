@@ -172,20 +172,43 @@ def create_h5_file(h5name, datasets, dataset_names):
     h5f.close()
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.784340Z","iopub.execute_input":"2024-03-16T12:40:56.784687Z","iopub.status.idle":"2024-03-16T12:40:56.797546Z","shell.execute_reply.started":"2024-03-16T12:40:56.784652Z","shell.execute_reply":"2024-03-16T12:40:56.796355Z"},"jupyter":{"outputs_hidden":false}}
-def process_as_h5(file, num_examples=None, apply_sig=False):
+def process_as_h5(file, start_index=None, end_index=None, num_examples=None, apply_sig=False):
     """Takes in the dataset, performs signature and then stores data
         Choose number of of examples. It i suseful to choose a small number
-        initially for testing"""
+        initially for testing
+        
+        start_index = num of example to starrt from
+        end_index = num of example to end at
+        num_examples = number of examples from start (used if start and end index are None)
+        """
                     
     data = get_data(file)
     eeg_arr = []
     sp_arr = []
     target_arr = []
     num_votes_arr = []
-    if num_examples is None:
-        num_examples = len(data)
+    data_length = len(data) # There are 106800 examples in the train set
+    
+    if (start_index is None) and (end_index is None):
+        start_index = 0
+        if num_examples is None:
+            end_index = data_length
+        else:
+            end_index = num_examples
+        
+    else:
+        
+        if start_index is None:
+            start_index = 0
+
+        if end_index is None:
+            end_index = num_examples-1
+    
+#     print(f"length of data: {len(data)}")
+#     assert False
+    
                     
-    for i in tqdm(range(num_examples)):
+    for i in tqdm(range(start_index, end_index)):
         exp_row = data.iloc[i]
         eeg_data, sp_dict, targets = get_eeg_sp_data(exp_row)
 #         print(eeg_data.shape)
@@ -200,7 +223,7 @@ def process_as_h5(file, num_examples=None, apply_sig=False):
         num_votes_arr.append(total_votes)
         target_arr.append(np.asfarray(targets) / total_votes)
     
-    h5name = f"processed_dataset_{num_examples}.h5"
+    h5name = f"processed_dataset_{start_index}_{end_index-1}.h5"
     eeg_arr = np.array(eeg_arr)
     sp_arr = np.array(sp_arr)
     target_arr = np.array(target_arr)
@@ -251,14 +274,14 @@ def zip_folder(folder_path, output_zip):
 if __name__ == "__main__":
     #install_pacakge('iisignature')
     #import iisignature as isig
-#     train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
-#     data_file = get_data(train_path)
-#     process_as_h5(train_path, num_examples=10)
+    train_path = '/kaggle/input/hms-harmful-brain-activity-classification/train.csv'
+    data_file = get_data(train_path)
+    process_as_h5(train_path, start_index = 40, end_index = 52)
 
 #     rand_arr = np.random.rand(4, 5, 6)
 #     print(signature(rand_arr, 2).shape)
 
-    print("running!")
+    
         
     
     
