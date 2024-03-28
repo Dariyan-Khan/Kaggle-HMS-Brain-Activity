@@ -112,7 +112,7 @@ def get_eeg_sp_data(train_row):
 
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.372282Z","iopub.execute_input":"2024-03-16T12:40:56.373478Z","iopub.status.idle":"2024-03-16T12:40:56.378346Z","shell.execute_reply.started":"2024-03-16T12:40:56.373441Z","shell.execute_reply":"2024-03-16T12:40:56.376921Z"},"jupyter":{"outputs_hidden":false}}
-def signature(data, level=2, chunk_len=None):
+def signature(data, level=2, chunk_len=None, concatenate=True):
     """Performs signature on data needs data to be 3d,
     
     if input to isig.sig is (num_examples, num_time_steps, dim_of_data_at_each_time_step)
@@ -125,10 +125,15 @@ def signature(data, level=2, chunk_len=None):
     assert len(data.shape) == 3, f"data needs to be 3d. data is {data.shape} If it is 2d, reshape so first dim is 1"
     
     if chunk_len is not None:
-        assert chunk_len < data.shape[1], f"chunk length is bigger than the number of time steps"
+        assert chunk_len < data.shape[2], f"chunk length is bigger than the number of time steps"
     
-    sig_len = isig.siglength(data.shape[2], level)
-    assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
+    if chunk_len is None:
+        sig_len = isig.siglength(data.shape[2], level)
+        assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
+    
+    if chunk_len is not None:
+        sig_len = isig.siglength(data.shape[2], level)
+        assert sig_len > 0 , "Too many elements in each chunk. Signature package thinks the num of elements is negative lol"
     
     if chunk_len is None:        
         return isig.sig(data, level) # np.array(sig_arr)
@@ -136,19 +141,24 @@ def signature(data, level=2, chunk_len=None):
     else:
         num_whole_chunks = (data.shape[1] // chunk_len)
         remainder = data.shape[1] % chunk_len
-            
-        #sig_arr = np.zeros((data.shape[0], num_whole_chunks + int(remainder != 0), sig_len)
+
         sig_arr = []
-        
-        for j in range(num_whole_chunks):
-            sig_output = isig.sig(data[:,j*chunk_len: (j+1)*chunk_len,:], level)
+
+        for j in range(1,num_whole_chunks):
+            sub_dat = data[:, j*chunk_len: (j+1)*chunk_len, :]
+            sig_output = isig.sig(sub_dat, level)
             sig_arr.append(sig_output.reshape(sig_output.shape[0], 1, sig_output.shape[1]))
 
-        sig_output = isig.sig(data[:,num_whole_chunks*chunk_len:,:], level)
-        sig_arr.append(sig_output.reshape(sig_output.shape[0], 1, sig_output.shape[1]))
-            
-        
-        return np.concatenate(sig_arr, axis=1)
+        # Handling the remainder if it exists
+        if remainder != 0:
+            sub_dat = data[:, num_whole_chunks*chunk_len:, ]
+            sig_output = isig.sig(sub_dat, level)
+            sig_arr.append(sig_output.reshape(sig_output.shape[0], 1, sig_output.shape[1]))
+
+        if concatenate:
+            return np.concatenate(sig_arr, axis=1)
+        else:
+            return sig_arr
         
 
 # %% [code] {"execution":{"iopub.status.busy":"2024-03-16T12:40:56.493541Z","iopub.execute_input":"2024-03-16T12:40:56.493964Z","iopub.status.idle":"2024-03-16T12:40:56.500716Z","shell.execute_reply.started":"2024-03-16T12:40:56.493933Z","shell.execute_reply":"2024-03-16T12:40:56.499369Z"},"jupyter":{"outputs_hidden":false}}
@@ -282,11 +292,7 @@ if __name__ == "__main__":
 #     print(signature(rand_arr, 2).shape)
 
     
-        
-    
-    
-    
-    
+
 
 # %% [code] {"jupyter":{"outputs_hidden":false}}
 
